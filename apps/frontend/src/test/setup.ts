@@ -9,12 +9,10 @@ import matchers from '@testing-library/jest-dom/matchers';
 // @testing-library/jest-dom의 matcher를 Vitest에 추가
 expect.extend(matchers);
 
-// 타입 정의 추가
-declare global {
-  namespace Vi {
-    interface Assertion {
-      toBeInTheDocument(): void;
-      toHaveTextContent(text: string): void;
-    }
+// Vitest의 Assertion 인터페이스 확장
+declare module 'vitest' {
+  interface Assertion {
+    toBeInTheDocument(): void;
+    toHaveTextContent(text: string): void;
   }
 } 
