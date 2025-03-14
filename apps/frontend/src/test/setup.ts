@@ -7,4 +7,14 @@ import { expect } from 'vitest';
 import matchers from '@testing-library/jest-dom/matchers';
 
 // @testing-library/jest-dom의 matcher를 Vitest에 추가
-expect.extend(matchers); 
+expect.extend(matchers);
+
+// 타입 정의 추가
+declare global {
+  namespace Vi {
+    interface Assertion {
+      toBeInTheDocument(): void;
+      toHaveTextContent(text: string): void;
+    }
+  }
+} 
