@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - que-network
+    restart: always
+
+  redis:
+    image: redis:alpine
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - que-network
+    restart: always
+
+networks:
+  que-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  redis_data: 
