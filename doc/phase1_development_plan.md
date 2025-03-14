@@ -125,7 +125,7 @@
 - **API Communication**: Axios
 - **Real-time Communication**: Socket.io-client
 - **UI Library**: Material-UI
-- **Testing**: Jest, React Testing Library
+- **Testing**: Vitest, React Testing Library
 
 ### 4.2 Backend
 - **Framework**: Node.js + Express
@@ -134,7 +134,7 @@
 - **Real-time Communication**: Socket.io
 - **Authentication**: JWT, Passport.js
 - **API Documentation**: Swagger
-- **Testing**: Jest, Supertest
+- **Testing**: Vitest, Supertest
 
 ### 4.3 DevOps
 - **Version Control**: Git, GitHub
@@ -377,33 +377,85 @@ volumes:
 ### 9.6 CI/CD 파이프라인
 
 #### 9.6.1 GitHub Actions 워크플로우
+
 ```yaml
-# .github/workflows/deploy.yml
-name: Deploy
+# .github/workflows/ci.yml
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
 
 jobs:
-  test:
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: Set up Node.js
-        uses: actions/setup-node@v2
+      - uses: actions/checkout@v3
+      - uses: pnpm/action-setup@v2
         with:
-          node-version: '16'
+          version: 8
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'pnpm'
       - name: Install dependencies
-        run: npm install
-      - name: Run tests
-        run: npm test
+        run: pnpm install
+      - name: Lint
+        run: pnpm lint
 
-  build-and-deploy:
-    needs: test
+  test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install
+      - name: Test
+        run: pnpm test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install
+      - name: Build
+        run: pnpm build
+```
+
+```yaml
+# .github/workflows/cd.yml
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
       
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
@@ -422,11 +474,19 @@ jobs:
           ECR_REPOSITORY: que
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker-compose build
-          docker tag que-frontend:latest $ECR_REGISTRY/$ECR_REPOSITORY:frontend-$IMAGE_TAG
-          docker tag que-backend:latest $ECR_REGISTRY/$ECR_REPOSITORY:backend-$IMAGE_TAG
+          # Build Docker images
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:frontend-$IMAGE_TAG ./apps/frontend
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:backend-$IMAGE_TAG ./apps/backend
+          
+          # Push Docker images to ECR
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:frontend-$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:backend-$IMAGE_TAG
+          
+          # Tag as latest
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:frontend-$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:frontend-latest
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:backend-$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:backend-latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:frontend-latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:backend-latest
       
       - name: Deploy to EC2
         uses: appleboy/ssh-action@master

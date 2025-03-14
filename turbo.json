@@ -13,6 +13,10 @@
     },
     "test": {
       "dependsOn": ["build"]
+    },
+    "vitest": {
+      "cache": false,
+      "persistent": true
     }
   }
 } 
