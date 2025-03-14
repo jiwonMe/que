@@ -243,15 +243,349 @@
 
 ### 9.1 개발 환경
 - 로컬 개발 환경 설정
+  - Docker Compose를 활용한 개발 환경 구성
+  - 프론트엔드, 백엔드, 데이터베이스, Redis 컨테이너 설정
+  - 핫 리로딩 및 디버깅 환경 구성
 - 개발용 데이터베이스 구성
+  - MongoDB 컨테이너 설정 및 초기 데이터 구성
+  - 개발용 시드 데이터 스크립트 작성
 
 ### 9.2 스테이징 환경
 - AWS EC2 인스턴스에 스테이징 서버 구축
+  - t3.small 인스턴스 프로비저닝
+  - Docker 및 Docker Compose 설치
+  - GitHub Actions를 통한 자동 배포 파이프라인 구성
 - 테스트 데이터 구성
+  - 스테이징용 데이터베이스 설정
+  - 테스트 시나리오에 맞는 데이터 구성
 
 ### 9.3 프로덕션 환경
 - AWS EC2 인스턴스에 프로덕션 서버 구축
+  - t3.medium 인스턴스 프로비저닝 (초기 트래픽 기준)
+  - 보안 그룹 및 네트워크 설정
+  - SSL 인증서 설정 (AWS Certificate Manager 활용)
 - 모니터링 및 로깅 설정
+  - CloudWatch 대시보드 구성
+  - 로그 수집 및 분석 파이프라인 구축
+  - 알림 설정 (서버 상태, 에러 발생 등)
+
+### 9.4 Docker 컨테이너 구성
+
+#### 9.4.1 프론트엔드 컨테이너
+```dockerfile
+# Frontend Dockerfile
+FROM node:16-alpine as build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/build /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+#### 9.4.2 백엔드 컨테이너
+```dockerfile
+# Backend Dockerfile
+FROM node:16-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+EXPOSE 3000
+CMD ["node", "dist/main.js"]
+```
+
+#### 9.4.3 Docker Compose 구성
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: always
+
+  backend:
+    build: ./backend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongodb
+      - redis
+    environment:
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongodb:27017/que
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    restart: always
+
+  mongodb:
+    image: mongo:latest
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+    restart: always
+
+  redis:
+    image: redis:alpine
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    restart: always
+
+volumes:
+  mongodb_data:
+  redis_data:
+```
+
+### 9.5 AWS 인프라 구성
+
+#### 9.5.1 네트워크 설정
+- VPC 구성
+  - 퍼블릭 및 프라이빗 서브넷 설정
+  - 인터넷 게이트웨이 및 NAT 게이트웨이 구성
+  - 보안 그룹 설정 (인바운드/아웃바운드 트래픽 제어)
+
+#### 9.5.2 EC2 인스턴스 설정
+- 인스턴스 타입: t3.medium (초기 배포)
+- AMI: Amazon Linux 2
+- 스토리지: 30GB gp3 EBS 볼륨
+- 보안 그룹: HTTP(80), HTTPS(443), SSH(22) 포트 개방
+
+#### 9.5.3 데이터베이스 설정
+- MongoDB Atlas 클러스터 구성 (M10 인스턴스)
+- VPC 피어링을 통한 보안 연결 설정
+- 백업 및 복구 정책 설정
+
+#### 9.5.4 도메인 및 SSL 설정
+- Route 53을 통한 도메인 관리
+- ACM을 통한 SSL 인증서 발급
+- CloudFront 배포 구성 (정적 자산 전송 최적화)
+
+### 9.6 CI/CD 파이프라인
+
+#### 9.6.1 GitHub Actions 워크플로우
+```yaml
+# .github/workflows/deploy.yml
+name: Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+      - name: Install dependencies
+        run: npm install
+      - name: Run tests
+        run: npm test
+
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+      
+      - name: Build, tag, and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: que
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker-compose build
+          docker tag que-frontend:latest $ECR_REGISTRY/$ECR_REPOSITORY:frontend-$IMAGE_TAG
+          docker tag que-backend:latest $ECR_REGISTRY/$ECR_REPOSITORY:backend-$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:frontend-$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:backend-$IMAGE_TAG
+      
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ec2-user/que
+            git pull
+            docker-compose pull
+            docker-compose up -d
+```
+
+### 9.7 Phase 1 배포 전략
+
+Phase 1 MVP의 배포는 다음과 같은 단계적 접근 방식으로 진행합니다:
+
+#### 9.7.1 배포 단계
+
+1. **개발 환경 배포 (Development)**
+   - 로컬 Docker 환경에서 개발 및 테스트
+   - 개발자 로컬 환경에서의 통합 테스트
+   - 기능별 개발 완료 시 GitHub 저장소에 코드 푸시
+
+2. **스테이징 환경 배포 (Staging)**
+   - 마일스톤 완료 시점에 스테이징 서버 배포
+   - GitHub Actions를 통한 자동 배포
+   - 통합 테스트 및 성능 테스트 진행
+   - 내부 사용자 테스트 진행
+
+3. **프로덕션 환경 배포 (Production)**
+   - Phase 1 개발 완료 후 프로덕션 서버 배포
+   - 점진적 사용자 확대 (Gradual Rollout)
+   - 모니터링 및 성능 지표 수집
+   - 긴급 이슈 대응 체계 구축
+
+#### 9.7.2 배포 자동화 프로세스
+
+1. **코드 통합 및 테스트**
+   - 개발자가 기능 브랜치에서 작업 후 Pull Request 생성
+   - GitHub Actions에서 자동 테스트 실행
+   - 코드 리뷰 및 승인 프로세스
+
+2. **이미지 빌드 및 저장**
+   - 테스트 통과 시 Docker 이미지 자동 빌드
+   - Amazon ECR에 이미지 저장
+   - 이미지 태깅 및 버전 관리
+
+3. **환경별 배포**
+   - 스테이징 환경: PR 병합 시 자동 배포
+   - 프로덕션 환경: 수동 승인 후 배포
+   - 롤백 메커니즘 구현
+
+#### 9.7.3 Phase 1 인프라 구성도
+
+```
+                                   +------------------+
+                                   |                  |
+                                   |   Route 53 DNS   |
+                                   |                  |
+                                   +--------+---------+
+                                            |
+                                   +--------v---------+
+                                   |                  |
+                                   |   CloudFront     |
+                                   |                  |
+                                   +--------+---------+
+                                            |
++------------------+            +------------------+            +------------------+
+|                  |            |                  |            |                  |
+|   S3 Bucket      |<---------->|   EC2 Instance   |<---------->|   MongoDB Atlas  |
+| (Static Assets)  |            | (Docker Compose) |            |                  |
+|                  |            |                  |            |                  |
++------------------+            +--------+---------+            +------------------+
+                                         |
+                                +--------v---------+
+                                |                  |
+                                |   ElastiCache    |
+                                |    (Redis)       |
+                                |                  |
+                                +------------------+
+```
+
+#### 9.7.4 배포 체크리스트
+
+**사전 준비**
+- [ ] AWS 계정 설정 및 IAM 권한 구성
+- [ ] 도메인 이름 등록 및 Route 53 설정
+- [ ] SSL 인증서 발급 (ACM)
+- [ ] GitHub Actions 시크릿 설정 (AWS 자격 증명)
+- [ ] MongoDB Atlas 클러스터 생성
+
+**인프라 구성**
+- [ ] VPC 및 서브넷 구성
+- [ ] EC2 인스턴스 프로비저닝
+- [ ] 보안 그룹 설정
+- [ ] S3 버킷 생성 및 정책 설정
+- [ ] ElastiCache Redis 클러스터 설정
+- [ ] CloudFront 배포 구성
+
+**배포 자동화**
+- [ ] GitHub Actions 워크플로우 설정
+- [ ] Docker Compose 파일 구성
+- [ ] 환경 변수 및 시크릿 관리
+- [ ] 배포 스크립트 작성
+
+**모니터링 및 로깅**
+- [ ] CloudWatch 대시보드 설정
+- [ ] 로그 수집 파이프라인 구성
+- [ ] 알림 설정 (이메일, Slack)
+- [ ] 성능 모니터링 지표 설정
+
+#### 9.7.5 비용 최적화 전략
+
+Phase 1 MVP 단계에서는 다음과 같은 비용 최적화 전략을 적용합니다:
+
+1. **인스턴스 크기 최적화**
+   - 초기에는 t3.small 또는 t3.medium 인스턴스 사용
+   - 트래픽 증가에 따라 점진적으로 인스턴스 크기 조정
+
+2. **예약 인스턴스 고려**
+   - 안정적인 트래픽 패턴 확인 후 예약 인스턴스 전환 검토
+   - 1년 약정으로 약 40% 비용 절감 가능
+
+3. **서버리스 옵션 활용**
+   - 정적 자산은 S3 + CloudFront 조합으로 제공
+   - 백업 및 로그 처리에 Lambda 함수 활용
+
+4. **데이터베이스 최적화**
+   - MongoDB Atlas의 적절한 티어 선택 (초기에는 M10)
+   - 인덱스 최적화 및 쿼리 성능 모니터링
+
+5. **오토 스케일링 설정**
+   - 트래픽에 따른 자동 스케일링 구성
+   - 비사용 시간대 인스턴스 수 감소
+
+#### 9.7.6 장애 대응 계획
+
+1. **롤백 전략**
+   - 모든 배포는 버전 태그 관리
+   - 문제 발생 시 이전 안정 버전으로 즉시 롤백 가능한 스크립트 준비
+   - Docker 이미지 버전 관리를 통한 빠른 전환
+
+2. **고가용성 설계**
+   - 데이터베이스 백업 자동화 (일일 백업)
+   - 중요 데이터 S3 백업 구성
+   - 장애 복구 시나리오 문서화 및 테스트
+
+3. **모니터링 및 알림**
+   - 주요 지표에 대한 CloudWatch 경보 설정
+   - 서버 상태, API 응답 시간, 오류율 모니터링
+   - 임계값 초과 시 즉시 알림 발송
+
+4. **점진적 배포**
+   - 카나리 배포 방식 적용 (일부 사용자에게만 새 버전 제공)
+   - 문제 발견 시 영향 범위 최소화
+
+이러한 단계적 배포 전략을 통해 Phase 1 MVP를 안정적으로 출시하고, 사용자 피드백을 바탕으로 지속적인 개선을 진행할 수 있습니다.
 
 ## 10. 마일스톤
 
