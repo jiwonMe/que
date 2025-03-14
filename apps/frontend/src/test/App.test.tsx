@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import App from '../App';
 
 /**
@@ -26,8 +26,10 @@ describe('App Component', () => {
     // 초기 카운트 값 확인
     expect(button).toHaveTextContent('count is 0');
     
-    // 버튼 클릭
-    button.click();
+    // act로 버튼 클릭 이벤트 감싸기
+    act(() => {
+      fireEvent.click(button);
+    });
     
     // 카운트 값이 증가했는지 확인
     expect(button).toHaveTextContent('count is 1');
