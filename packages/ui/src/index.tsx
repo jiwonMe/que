@@ -1,4 +1,4 @@
-import * as React from "react";
+import * as React from 'react';
 
 /**
  * Button 컴포넌트 Props
@@ -18,7 +18,7 @@ export interface ButtonProps {
  * @param {ButtonProps} props - 버튼 속성
  * @returns {JSX.Element} Button 컴포넌트
  */
-export function Button({ children, onClick, className = "" }: ButtonProps): JSX.Element {
+export function Button({ children, onClick, className = '' }: ButtonProps): JSX.Element {
   return (
     <button
       className={`px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 ${className}`}
